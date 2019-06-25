@@ -1,0 +1,50 @@
+# Spanish translations for ckanext-report.
+# Copyright (C) 2018 ORGANIZATION
+# This file is distributed under the same license as the ckanext-report
+# project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2018.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ckanext-report 0.1\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2018-11-30 16:53-0500\n"
+"PO-Revision-Date: 2018-11-30 16:55-0500\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.3.4\n"
+
+msgid "View Report"
+msgstr "Vista del informe"
+
+msgid "Generated"
+msgstr "Generado"
+
+msgid "As a system administrator you are able to refresh this report on demand by clicking the Refresh button."
+msgstr "Como administrador del sistema, puede actualizar este informe a pedido haciendo clic en el botón Actualizar."
+
+msgid "Options"
+msgstr "Opciones"
+
+msgid "Results"
+msgstr "Resultados"
+
+msgid "No results found."
+msgstr "No se han encontrado resultados."
+
+msgid "Reports"
+msgstr "Informes"
+
+msgid "Refresh report"
+msgstr "Informe de actualización"
+
+msgid "Publisher"
+msgstr "Organismo"
+
+msgid "Index of all publishers"
+msgstr "Para todos los organismos"
