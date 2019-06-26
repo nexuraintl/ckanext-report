@@ -1,12 +1,11 @@
 import datetime
 
-from ckan.lib.helpers import json
+from ckan.lib.helpers import json, date_str_to_datetime
 import ckan.plugins.toolkit as t
 import ckanext.report.helpers as helpers
 from ckanext.report.report_registry import Report
 from ckan.lib.render import TemplateNotFound
-from ckan.common import OrderedDict
-
+from ckan.common import OrderedDict, _
 
 log = __import__('logging').getLogger(__name__)
 
@@ -56,14 +55,33 @@ class ReportController(t.BaseController):
             options['organization'] = organization
         options_html = {}
         c.options = options  # for legacy genshi snippets
+
+        start_date = None
+        end_date = None
+        filter_date = None
+
+        if 'filter_for_date' in options:
+            filter_date = options.get('filter_for_date')
+
+        if 'start_date' in options:
+            start_date = options.pop('start_date')
+
+        if 'end_date' in options:
+            end_date = options.pop('end_date')
+
         for option in options:
             if option not in report['option_defaults']:
                 # e.g. 'refresh' param
                 log.warn('Not displaying report option HTML for param %s as option not recognized')
                 continue
             option_display_params = {'value': options[option],
-                                     'default': report['option_defaults'][option]}
+                                     'default': report['option_defaults'][option],
+                                     'extras': {}
+                                     }
             try:
+                if 'filter_for_date' == option:
+                    option_display_params['extras'] = {'start_date': start_date, 'end_date': end_date}
+
                 options_html[option] = \
                     t.render_snippet('report/option_%s.html' % option,
                                      data=option_display_params)
@@ -105,6 +123,66 @@ class ReportController(t.BaseController):
         except t.NotAuthorized:
             t.abort(401)
 
+        # Nexura - aorejuela
+        # Filter for date.
+        filtered_data = []
+        for item in data['table']:
+
+            try:
+                dt_creation_at = date_str_to_datetime(item['creation_at']).replace(
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0
+                )
+                dt_update_at = date_str_to_datetime(item['update_at']).replace(
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0
+                )
+            except KeyError:
+                filtered_data = data['table']
+                break
+
+            dt_start_date = None
+            dt_end_date = None
+
+            if start_date:
+                dt_start_date = date_str_to_datetime(start_date)
+
+            if end_date:
+                dt_end_date = date_str_to_datetime(end_date)
+
+            if filter_date and dt_start_date and dt_end_date:
+                if start_date <= end_date:
+                    if filter_date == 'created' and dt_start_date <= dt_creation_at <= dt_end_date:
+                        filtered_data.append(item)
+                    elif filter_date == 'updated' and dt_start_date <= dt_update_at <= dt_end_date:
+                        filtered_data.append(item)
+            elif filter_date and dt_start_date and not dt_end_date:
+                if filter_date == 'created' and dt_start_date <= dt_creation_at:
+                    filtered_data.append(item)
+                elif filter_date == 'updated' and dt_start_date <= dt_update_at:
+                    filtered_data.append(item)
+            elif filter_date and dt_end_date and not dt_start_date:
+                if filter_date == 'created' and dt_creation_at <= dt_end_date:
+                    filtered_data.append(item)
+                elif filter_date == 'updated' and dt_update_at <= dt_end_date:
+                    filtered_data.append(item)
+            else:
+                filtered_data.append(item)
+
+        # This functionality couples the Datic extension with Report extension.
+        if report_name == 'global-statistics' and 'show_global_totals_by' in options:
+            show_global_totals_by = options['show_global_totals_by']
+            if show_global_totals_by == 'organisms':
+                filtered_data = data_and_counting_by_organization(filtered_data)
+            elif show_global_totals_by == 'users':
+                filtered_data = data_and_counting_by_user(filtered_data)
+
+        data['table'] = filtered_data
+
         if format and format != 'html':
             ensure_data_is_dicts(data)
             anonymise_user_names(data, organization=options.get('organization'))
@@ -126,6 +204,7 @@ class ReportController(t.BaseController):
 
         are_some_results = bool(data['table'] if 'table' in data
                                 else data)
+
         # A couple of context variables for legacy genshi reports
         c.data = data
         c.options = options
@@ -134,7 +213,9 @@ class ReportController(t.BaseController):
             'report_date': report_date, 'options': options,
             'options_html': options_html,
             'report_template': report['template'],
-            'are_some_results': are_some_results})
+            'are_some_results': are_some_results,
+            'start_date': start_date,
+            'end_date': end_date})
 
 
 def make_csv_from_dicts(rows):
@@ -157,7 +238,8 @@ def make_csv_from_dicts(rows):
         for header in row.keys():
             if header in new_headers:
                 headers_ordered.append(header)
-    csvwriter.writerow(headers_ordered)
+    translated_headers = translate_headers(headers_ordered)
+    csvwriter.writerow(translated_headers)
     for row in rows:
         items = []
         for header in headers_ordered:
@@ -208,3 +290,77 @@ def anonymise_user_names(data, organization=None):
             for row in data['table']:
                 row[col] = dguhelpers.user_link_info(
                     row[col], organization=organization)[0]
+
+
+def calculate_global_totals_of_downloads_and_views(packages):
+    visits = 0
+    downloads = 0
+
+    for package in packages:
+        visits += package['visits']
+        downloads += package['downloads']
+
+    return downloads, visits
+
+
+def data_and_counting_by_organization(filtered_data):
+    organization_list = t.get_action('organization_list')(data_dict={'all_fields': True})
+    table = []
+
+    for organization in organization_list:
+        packages = []
+        for item in filtered_data:
+            if item['organism_name'] == organization['name']:
+                packages.append(item)
+
+        downloads, visits = calculate_global_totals_of_downloads_and_views(packages)
+
+        data = OrderedDict((
+            ('show_global_totals_by', organization['display_name']),
+            ('package_count', len(packages)),
+            ('downloads', downloads),
+            ('visits', visits),
+        ))
+
+        table.append(data)
+
+    return table
+
+
+def data_and_counting_by_user(filtered_data):
+    user_list = t.get_action('user_list')(data_dict={})
+    table = []
+
+    for user in user_list:
+        packages = []
+        for item in filtered_data:
+            if item['user_name'] == user['name']:
+                packages.append(item)
+
+        downloads, visits = calculate_global_totals_of_downloads_and_views(packages)
+
+        data = OrderedDict((
+            ('show_global_totals_by', user['display_name']),
+            ('package_count', len(packages)),
+            ('downloads', downloads),
+            ('visits', visits),
+        ))
+
+        table.append(data)
+
+    return table
+
+
+def translate_headers(headers):
+    """
+    Translates the texts of the headings into legible texts in Spanish.
+    :param headers:
+    :return: translated headers
+    """
+    translated_headers = []
+    for header in headers:
+        translated = _(header)
+        item = translated.encode('utf8')
+        translated_headers.append(item)
+
+    return translated_headers
